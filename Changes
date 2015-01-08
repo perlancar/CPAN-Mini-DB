@@ -1,5 +1,15 @@
 Revision history for CPAN-SQLite-CPANMeta
 
+0.03    2015-01-09 (PERLANCAR)
+
+	- Support recursive/multiple levels (option --level, -l and -R).
+
+	- [ux] Don't show phase/rel columns if they are only single-valued.
+
+	- [pod] Mention about time required to setup/update CPAN::SQLite
+	  database.
+
+
 0.02    2015-01-08 (PERLANCAR)
 
         - Rename module/dist from CPAN-SQLite-{Meta,CPANMeta} due to PAUSE
