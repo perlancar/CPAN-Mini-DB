@@ -411,8 +411,10 @@ WHERE dp.dist_id=?
 ORDER BY module");
     $sth->execute($modrec->{dist_id});
     while (my $row = $sth->fetchrow_hashref) {
-        next unless $rel   eq 'ALL' || $row->{rel}   eq $rel;
         next unless $phase eq 'ALL' || $row->{phase} eq $phase;
+        next unless $rel   eq 'ALL' || $row->{rel}   eq $rel;
+        delete $row->{phase} unless $phase eq 'ALL';
+        delete $row->{rel}   unless $rel   eq 'ALL';
         push @res, $row;
     }
     [200, "OK", \@res];
