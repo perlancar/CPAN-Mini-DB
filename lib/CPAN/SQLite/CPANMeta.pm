@@ -1,4 +1,4 @@
-package CPAN::SQLite::Meta;
+package CPAN::SQLite::CPANMeta;
 
 # DATE
 # VERSION
@@ -458,7 +458,7 @@ See L<cpandb-meta> script.
 
 =head1 DESCRIPTION
 
-C<CPAN::SQLite::Meta> accompanies L<CPAN::SQLite> by adding information from
+C<CPAN::SQLite::CPANMeta> accompanies L<CPAN::SQLite> by adding information from
 CPAN Meta files (C<META.json> or C<META.yml>) in the release files.
 
 CPAN::SQLite only parses the C<$CPAN/modules/02packages.details.txt.gz> and
