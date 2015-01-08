@@ -338,8 +338,10 @@ ORDER BY dist_file
     } # for file
 
     $dbh->commit if $after_begin;
-    $sth_insfile->finish;
-    $sth_insdep->finish;
+    undef $sth_insdist;
+    undef $sth_insfile;
+    undef $sth_insdep;
+    undef $sth;
 
     $log->tracef("Disconnecting from SQLite database ...");
     $dbh->disconnect;
