@@ -13,6 +13,8 @@ use Archive::Tar;
 use File::Slurp::Tiny qw(read_file);
 #use File::Temp qw(tempdir);
 use JSON;
+use Module::CoreList;
+use Version::Util qw(version_gt);
 use YAML::Syck ();
 
 use Exporter;
@@ -351,6 +353,60 @@ ORDER BY dist_file
 
 # XXX cache connection?
 
+sub _get_prereqs {
+    my ($mod, $dbh, $memory, $level, $max_level, $phase, $rel, $include_core, $plver) = @_;
+
+    $log->tracef("Finding dependencies for module %s (level=%i) ...", $mod, $level);
+
+    # first find out which distribution that module belongs to
+    my $sth = $dbh->prepare("SELECT dist_id FROM mods WHERE mod_name=?");
+    $sth->execute($mod);
+    my $modrec = $sth->fetchrow_hashref;
+    return [404, "No such module: $mod"] unless $modrec;
+
+    # fetch the dependency information
+    $sth = $dbh->prepare("SELECT
+  CASE WHEN dp.mod_id THEN (SELECT mod_name FROM mods WHERE mod_id=dp.mod_id) ELSE dp.mod_name END AS module,
+  phase,
+  rel,
+  version
+FROM deps dp
+WHERE dp.dist_id=?
+ORDER BY module");
+    $sth->execute($modrec->{dist_id});
+    my @res;
+    while (my $row = $sth->fetchrow_hashref) {
+        next unless $phase eq 'ALL' || $row->{phase} eq $phase;
+        next unless $rel   eq 'ALL' || $row->{rel}   eq $rel;
+        #say "include_core=$include_core, is_core($row->{module}, $row->{version}, $plver)=", Module::CoreList::is_core($row->{module}, $row->{version}, version->parse($plver)->numify);
+        next if !$include_core && Module::CoreList::is_core($row->{module}, $row->{version}, version->parse($plver)->numify);
+        if (defined $memory->{$row->{module}}) {
+            if (version_gt($row->{version}, $memory->{$row->{module}})) {
+                $memory->{$row->{version}} = $row->{version};
+            }
+            next;
+        }
+        delete $row->{phase} unless $phase eq 'ALL';
+        delete $row->{rel}   unless $rel   eq 'ALL';
+        $row->{level} = $level;
+        push @res, $row;
+        $memory->{$row->{module}} = $row->{version};
+    }
+
+    if (@res && ($max_level==-1 || $level < $max_level)) {
+        my $i = @res-1;
+        while ($i >= 0) {
+            my $subres = _get_prereqs($res[$i]{module}, $dbh, $memory,
+                                      $level+1, $max_level, $phase, $rel, $include_core, $plver);
+            $i--;
+            next if $subres->[0] != 200;
+            splice @res, $i+2, 0, @{$subres->[2]};
+        }
+    }
+
+    [200, "OK", \@res];
+}
+
 $SPEC{'deps_cpan_meta'} = {
     v => 1.1,
     summary => 'Query dependency from CPAN::SQLite database',
@@ -373,6 +429,31 @@ $SPEC{'deps_cpan_meta'} = {
             }],
             default => 'requires',
         },
+        level => {
+            summary => 'Recurse for a number of levels (-1 means unlimited)',
+            schema  => 'int*',
+            default => 1,
+            cmdline_aliases => {
+                l => {},
+                R => {
+                    summary => 'Recurse (alias for `--level -1`)',
+                    is_flag => 1,
+                    code => sub { $_[0]{level} = -1 },
+                },
+            },
+        },
+        include_core => {
+            summary => 'Include Perl core modules',
+            'summary.alt.bool.not' => 'Exclude Perl core modules',
+            schema  => 'bool',
+            default => 0,
+        },
+        perl_version => {
+            summary => 'Set base Perl version for determining core modules',
+            schema  => 'str*',
+            default => "$^V",
+            cmdline_aliases => {V=>{}},
+        },
     },
 };
 sub deps_cpan_meta {
@@ -386,38 +467,24 @@ sub deps_cpan_meta {
     my $mod     = $args{module};
     my $phase   = $args{phase} // 'runtime';
     my $rel     = $args{rel} // 'requires';
+    my $plver   = $args{perl_version} // "$^V";
+    my $level   = $args{level} // 1;
+    my $include_core = $args{include_core} // 0;
 
     my $db_path = "$db_dir/$db_name";
     $log->tracef("Connecting to SQLite database at %s ...", $db_path);
     my $dbh = DBI->connect("dbi:SQLite:dbname=$db_path", undef, undef,
                            {RaiseError=>1});
 
-    # first find out which distribution that module belongs to
-    my $sth = $dbh->prepare("SELECT dist_id FROM mods WHERE mod_name=?");
-    $sth->execute($mod);
-    my $modrec = $sth->fetchrow_hashref;
-    return [404, "No such module: $mod"] unless $modrec;
+    my $res = _get_prereqs($mod, $dbh, {}, 1, $level, $phase, $rel, $include_core, $plver);
 
-    my @res;
-
-    # fetch the dependency information
-    $sth = $dbh->prepare("SELECT
-  CASE WHEN dp.mod_id THEN (SELECT mod_name FROM mods WHERE mod_id=dp.mod_id) ELSE dp.mod_name END AS module,
-  phase,
-  rel,
-  version
-FROM deps dp
-WHERE dp.dist_id=?
-ORDER BY module");
-    $sth->execute($modrec->{dist_id});
-    while (my $row = $sth->fetchrow_hashref) {
-        next unless $phase eq 'ALL' || $row->{phase} eq $phase;
-        next unless $rel   eq 'ALL' || $row->{rel}   eq $rel;
-        delete $row->{phase} unless $phase eq 'ALL';
-        delete $row->{rel}   unless $rel   eq 'ALL';
-        push @res, $row;
+    return $res unless $res->[0] == 200;
+    for (@{$res->[2]}) {
+        $_->{module} = ("  " x ($_->{level}-1)) . $_->{module};
+        delete $_->{level};
     }
-    [200, "OK", \@res];
+
+    $res;
 }
 
 $SPEC{'revdeps_cpan_meta'} = {
