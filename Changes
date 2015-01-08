@@ -1,5 +1,5 @@
 Revision history for CPAN-SQLite-Meta
 
-0.01    2015-01-08 (PERLANCAR) (unreleased)
+0.01    2015-01-08 (PERLANCAR)
 
-        - First version.
+        - First version, 'revdeps' subcommand not yet implemented.
