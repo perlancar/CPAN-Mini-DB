@@ -33,27 +33,27 @@ its index, to do so:
 
 Afterwards, add information from CPAN Meta by doing this:
 
- % cpandb-meta --cpan /path/to/cpan index
+ % cpandb-meta index --cpan /path/to/cpan
 
 If you want to see debugging information:
 
- % cpandb-meta --trace --cpan /path/to/cpan index
+ % cpandb-meta --trace index --cpan /path/to/cpan
 
 Everytime you update your CPAN mirror, update the CPAN::SQLite index and also
 the CPAN Meta information:
 
  % cpandb --CPAN /path/to/cpan --db_dir /path/to/cpan --db_name cpandb.sql --update
- % cpandb-meta --cpan /path/to/cpan index
+ % cpandb-meta index --cpan /path/to/cpan
 
 To query CPAN Meta information in database:
 
  # find out the dependencies of a module (i.e. what modules are required by
  # Text::ANSITable)
- % cpandb-meta --cpan /path/to/cpan deps Text::ANSITable
+ % cpandb-meta deps --cpan /path/to/cpan Text::ANSITable
 
  # find out the reverse dependencies of a module (i.e. which modules
  # (distributions) depends on Text::ANSITable)
- % cpandb-meta --cpan /path/to/cpan revdeps Text::ANSITable
+ % cpandb-meta revdeps --cpan /path/to/cpan Text::ANSITable
 
 For more options:
 
