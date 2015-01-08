@@ -485,8 +485,10 @@ information" and is a SQLite database that contains more information about CPAN
 from various sources, e.g.: number of ratings from
 L<http://cpanratings.perl.org>, upload date and test results from CPAN Testers,
 number of tickets from L<http://rt.cpan.org>. However, generating CPANDB locally
-will require downloading gigabytes of data and take hours. An online cache is
-available and can be used via L<CPANDB> but you cannot control the update
-frequency.
+will require downloading gigabytes of data and take hours (generating
+CPAN::SQLite database + CPAN::SQLite::CPANMeta, on the other hand, only takes a
+few minutes; regular updating typically only takes a few seconds). An online
+cache is available and can be used via L<CPANDB> but you cannot control the
+update frequency.
 
 =cut
