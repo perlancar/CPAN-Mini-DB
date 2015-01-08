@@ -359,6 +359,18 @@ $SPEC{'deps_cpan_meta'} = {
             req => 1,
             pos => 0,
         },
+        phase => {
+            schema => ['str*' => {
+                in => [qw/develop configure build runtime test ALL/],
+            }],
+            default => 'runtime',
+        },
+        rel => {
+            schema => ['str*' => {
+                in => [qw/requires recommends suggests conflicts ALL/],
+            }],
+            default => 'requires',
+        },
     },
 };
 sub deps_cpan_meta {
@@ -370,6 +382,8 @@ sub deps_cpan_meta {
     my $db_dir  = $args{db_dir} // $cpan;
     my $db_name = $args{db_name} // 'cpandb.sql';
     my $mod     = $args{module};
+    my $phase   = $args{phase} // 'runtime';
+    my $rel     = $args{rel} // 'requires';
 
     my $db_path = "$db_dir/$db_name";
     $log->tracef("Connecting to SQLite database at %s ...", $db_path);
@@ -395,9 +409,41 @@ WHERE dp.dist_id=?
 ORDER BY module");
     $sth->execute($modrec->{dist_id});
     while (my $row = $sth->fetchrow_hashref) {
+        next unless $rel   eq 'ALL' || $row->{rel}   eq $rel;
+        next unless $phase eq 'ALL' || $row->{phase} eq $phase;
         push @res, $row;
     }
     [200, "OK", \@res];
+}
+
+$SPEC{'revdeps_cpan_meta'} = {
+    v => 1.1,
+    summary => 'Query reverse dependencies from CPAN::SQLite database',
+    args => {
+        %common_args,
+        module => {
+            schema => 'str*',
+            req => 1,
+            pos => 0,
+        },
+    },
+};
+sub revdeps_cpan_meta {
+    require DBI;
+
+    my %args = @_;
+
+    my $cpan    = $args{cpan} or return [412, "Please specify 'cpan'"];
+    my $db_dir  = $args{db_dir} // $cpan;
+    my $db_name = $args{db_name} // 'cpandb.sql';
+    my $mod     = $args{module};
+
+    my $db_path = "$db_dir/$db_name";
+    $log->tracef("Connecting to SQLite database at %s ...", $db_path);
+    my $dbh = DBI->connect("dbi:SQLite:dbname=$db_path", undef, undef,
+                           {RaiseError=>1});
+
+    [501, "Not yet implemented"];
 }
 
 1;
