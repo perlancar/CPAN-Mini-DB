@@ -1,0 +1,66 @@
+#!perl
+
+# DATE
+# VERSION
+
+use 5.010;
+use strict;
+use warnings;
+
+#use CPAN::SQLite::Meta;
+use Perinci::CmdLine::Any -prefer_lite=>1;
+
+Perinci::CmdLine::Any->new(
+    url => '/CPAN/SQLite/Meta/',
+    subcommands => {
+        index   => {url=>'/CPAN/SQLite/Meta/index_cpan_meta'},
+        deps    => {url=>'/CPAN/SQLite/Meta/deps_cpan_meta'},
+        revdeps => {url=>'/CPAN/SQLite/Meta/revdeps_cpan_meta'},
+    },
+    log => 1,
+)->run;
+
+# ABSTRACT: Index and query CPAN Meta information in CPAN::SQLite database
+# PODNAME:
+
+=head1 SYNOPSIS
+
+Before you use C<cpandb-meta>, you must already install CPAN::SQLite and create
+its index, to do so:
+
+ % cpanm CPAN::SQLite
+ % cpandb --CPAN /path/to/cpan --db_dir /path/to/cpan --db_name cpandb.sql --setup
+
+Afterwards, add information from CPAN Meta by doing this:
+
+ % cpandb-meta --cpan /path/to/cpan index
+
+If you want to see debugging information:
+
+ % cpandb-meta --trace --cpan /path/to/cpan index
+
+Everytime you update your CPAN mirror, update the CPAN::SQLite index and also
+the CPAN Meta information:
+
+ % cpandb --CPAN /path/to/cpan --db_dir /path/to/cpan --db_name cpandb.sql --update
+ % cpandb-meta --cpan /path/to/cpan index
+
+To query CPAN Meta information in database:
+
+ # find out the dependencies of a module (i.e. what modules are required by
+ # Text::ANSITable)
+ % cpandb-meta --cpan /path/to/cpan deps Text::ANSITable
+
+ # find out the reverse dependencies of a module (i.e. which modules
+ # (distributions) depends on Text::ANSITable)
+ % cpandb-meta --cpan /path/to/cpan revdeps Text::ANSITable
+
+For more options:
+
+ % cpandb-meta --help
+ % cpandb-meta index --help
+ % cpandb-meta deps --help
+ % cpandb-meta revdeps --help
+
+
+=head1 DESCRIPTION

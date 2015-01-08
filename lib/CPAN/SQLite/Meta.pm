@@ -23,6 +23,11 @@ our @EXPORT_OK = qw(
 
 our %SPEC;
 
+$SPEC{':package'} = {
+    v => 1.1,
+    summary => 'Index and query CPAN Meta information in CPAN::SQLite database',
+};
+
 sub _parse_json {
     my $content = shift;
 
@@ -54,6 +59,23 @@ sub _parse_yaml {
     }
 }
 
+sub _add_prereqs {
+    my ($file_id, $dist_id, $hash, $phase, $rel, $sth_insdep, $sth_selmod) = @_;
+    $log->tracef("  Adding prereqs (%s %s): %s", $phase, $rel, $hash);
+    for my $mod (keys %$hash) {
+        $sth_selmod->execute($mod);
+        my $row = $sth_selmod->fetchrow_hashref;
+        my ($mod_id, $mod_name);
+        if ($row) {
+            $mod_id = $row->{mod_id};
+        } else {
+            $mod_name = $mod;
+        }
+        $sth_insdep->execute($file_id, $dist_id, $mod_id, $mod_name, $phase,
+                             $rel, $hash->{$mod});
+    }
+}
+
 my %common_args = (
     cpan => {
         schema => 'str*',
@@ -73,7 +95,7 @@ my %common_args = (
 
 $SPEC{'index_cpan_meta'} = {
     v => 1.1,
-    summary => 'Create/update CPAN Meta index',
+    summary => 'Index CPAN Meta information into CPAN::SQLite database',
     args => {
         %common_args,
     },
@@ -91,10 +113,11 @@ sub index_cpan_meta {
     $log->tracef("Connecting to SQLite database at %s ...", $db_path);
     my $dbh = DBI->connect("dbi:SQLite:dbname=$db_path", undef, undef,
                            {RaiseError=>1});
+    $dbh->do("CREATE INDEX IF NOT EXISTS ix_dists_dist_file ON dists(dist_file)");
     $dbh->do("CREATE TABLE IF NOT EXISTS files (
   file_id INTEGER NOT NULL PRIMARY KEY,
   file_name TEXT NOT NULL,
-  status TEXT -- ok (indexed successfully), nometa (does not contain META.yml/META.json), nofile (file does not exist in local CPAN), unsupported (unsupported file type), err (other error, detail logged to Log::Any)
+  status TEXT -- ok (indexed successfully), nometa (does not contain META.yml/META.json), nofile (file does not exist in local CPAN), unsupported (unsupported file type), metaerr (meta has some errors), err (other error, detail logged to Log::Any)
 )");
     $dbh->do("CREATE INDEX IF NOT EXISTS ix_files_file_name ON files(file_name)");
     $dbh->do("CREATE TABLE IF NOT EXISTS deps (
@@ -114,14 +137,38 @@ sub index_cpan_meta {
 
     my $sth;
 
-    $dbh->begin_work;
+    # delete files in 'files' table no longer in 'dists' table
+  DEL_FILES:
+    {
+        $sth = $dbh->prepare("SELECT file_name
+FROM files
+WHERE NOT EXISTS (SELECT 1 FROM dists WHERE file_name=dist_file)
+");
+        $sth->execute;
+        my @files;
+        while (my $row = $sth->fetchrow_hashref) {
+            push @files, $row->{file_name};
+        }
+        last DEL_FILES unless @files;
+        $log->infof("Deleting files no longer in dists: %s ...", \@files);
+        $dbh->do("DELETE
+FROM deps WHERE file_id IN (
+  SELECT file_id FROM files f
+  WHERE NOT EXISTS (SELECT 1 FROM dists WHERE file_name=dist_file)
+)");
+        $dbh->do("DELETE
+FROM files
+WHERE NOT EXISTS (SELECT 1 FROM dists WHERE file_name=dist_file)
+");
+    }
 
-    # list files
+    # list files in 'dists' but not already in 'files' table
     $sth = $dbh->prepare("SELECT
   d.dist_id dist_id,
   dist_name,
   dist_file,
-  cpanid
+  cpanid,
+  a.auth_id auth_id
 FROM dists d
   LEFT JOIN auths a USING(auth_id)
 WHERE NOT EXISTS (SELECT 1 FROM files WHERE file_name=dist_file)
@@ -134,10 +181,30 @@ ORDER BY dist_file
     }
 
     my $sth_insfile = $dbh->prepare("INSERT INTO files (file_name,status) VALUES (?,?)");
+    my $sth_seldist = $dbh->prepare("SELECT * FROM dists WHERE dist_name=?");
+    my $sth_insdist = $dbh->prepare("INSERT INTO dists (dist_file,dist_vers,dist_name,auth_id) VALUES (?,?,?,?)");
+    my $sth_selmod  = $dbh->prepare("SELECT * FROM mods WHERE mod_name=?");
+    my $sth_insdep  = $dbh->prepare("INSERT INTO deps (file_id,dist_id,mod_id,mod_name,phase, rel,version) VALUES (?,?,?,?,?, ?,?)");
+
+    my $i = 0;
+    my $after_begin;
 
   FILE:
     for my $file (@files) {
-        $log->tracef("Processing file %s ...", $file->{dist_file});
+        # commit after every 500 files
+        if ($i % 500 == 499) {
+            $log->tracef("COMMIT");
+            $dbh->commit;
+            $after_begin = 0;
+        }
+        if ($i % 500 == 0) {
+            $log->tracef("BEGIN");
+            $dbh->begin_work;
+            $after_begin = 1;
+        }
+        $i++;
+
+        $log->tracef("[#%i] Processing file %s ...", $i, $file->{dist_file});
         my $status;
         my $path = "$cpan/authors/id/".substr($file->{cpanid}, 0, 1)."/".
             substr($file->{cpanid}, 0, 2)."/$file->{cpanid}/$file->{dist_file}";
@@ -222,11 +289,57 @@ ORDER BY dist_file
             next FILE;
         }
 
-        $log->info("file=$path, distname=$meta->{name}");
+        unless (ref($meta) eq 'HASH') {
+            $log->infof("meta is not a hash, skipped");
+            $sth_insfile->execute($file->{dist_file}, "metaerr");
+            next FILE;
+        }
 
+        # check if dist record is in dists
+        {
+            my $dist_name = $meta->{name};
+            if (!defined($dist_name)) {
+                $log->errorf("meta does not contain name, skipped");
+                $sth_insfile->execute($file->{dist_file}, "metaerr");
+                next FILE;
+            }
+            $dist_name =~ s/::/-/g; # sometimes author miswrites module name
+            $sth_seldist->execute($dist_name);
+            my $row = $sth_seldist->fetchrow_hashref;
+            if (!$row) {
+                $log->warnf("Distribution %s not yet in dists, adding ...", $dist_name);
+                $sth_insdist->execute($file->{dist_file}, $meta->{version}, $dist_name, $file->{dist_id});
+            }
+        }
+
+        # insert dependency information
+        {
+            $sth_insfile->execute($file->{dist_file}, "ok");
+            my $file_id = $dbh->last_insert_id("","","","");
+            my $dist_id = $file->{dist_id};
+            if (ref($meta->{build_requires}) eq 'HASH') {
+                _add_prereqs($file_id, $dist_id, $meta->{build_requires}, 'build', 'requires', $sth_insdep, $sth_selmod);
+            }
+            if (ref($meta->{configure_requires}) eq 'HASH') {
+                _add_prereqs($file_id, $dist_id, $meta->{configure_requires}, 'configure', 'requires', $sth_insdep, $sth_selmod);
+            }
+            if (ref($meta->{requires}) eq 'HASH') {
+                _add_prereqs($file_id, $dist_id, $meta->{requires}, 'runtime', 'requires', $sth_insdep, $sth_selmod);
+            }
+            if (ref($meta->{prereqs}) eq 'HASH') {
+                for my $phase (keys %{ $meta->{prereqs} }) {
+                    my $phprereqs = $meta->{prereqs}{$phase};
+                    for my $rel (keys %$phprereqs) {
+                        _add_prereqs($file_id, $dist_id, $phprereqs->{$rel}, $phase, $rel, $sth_insdep, $sth_selmod);
+                    }
+                }
+            }
+        }
     } # for file
 
-    $dbh->commit;
+    $dbh->commit if $after_begin;
+    $sth_insfile->finish;
+    $sth_insdep->finish;
 
     $log->tracef("Disconnecting from SQLite database ...");
     $dbh->disconnect;
@@ -234,43 +347,65 @@ ORDER BY dist_file
     [200];
 }
 
+# XXX cache connection?
+
+$SPEC{'deps_cpan_meta'} = {
+    v => 1.1,
+    summary => 'Query dependency from CPAN::SQLite database',
+    args => {
+        %common_args,
+        module => {
+            schema => 'str*',
+            req => 1,
+            pos => 0,
+        },
+    },
+};
+sub deps_cpan_meta {
+    require DBI;
+
+    my %args = @_;
+
+    my $cpan    = $args{cpan} or return [412, "Please specify 'cpan'"];
+    my $db_dir  = $args{db_dir} // $cpan;
+    my $db_name = $args{db_name} // 'cpandb.sql';
+    my $mod     = $args{module};
+
+    my $db_path = "$db_dir/$db_name";
+    $log->tracef("Connecting to SQLite database at %s ...", $db_path);
+    my $dbh = DBI->connect("dbi:SQLite:dbname=$db_path", undef, undef,
+                           {RaiseError=>1});
+
+    # first find out which distribution that module belongs to
+    my $sth = $dbh->prepare("SELECT dist_id FROM mods WHERE mod_name=?");
+    $sth->execute($mod);
+    my $modrec = $sth->fetchrow_hashref;
+    return [404, "No such module: $mod"] unless $modrec;
+
+    my @res;
+
+    # fetch the dependency information
+    $sth = $dbh->prepare("SELECT
+  CASE WHEN dp.mod_id THEN (SELECT mod_name FROM mods WHERE mod_id=dp.mod_id) ELSE dp.mod_name END AS module,
+  phase,
+  rel,
+  version
+FROM deps dp
+WHERE dp.dist_id=?
+ORDER BY module");
+    $sth->execute($modrec->{dist_id});
+    while (my $row = $sth->fetchrow_hashref) {
+        push @res, $row;
+    }
+    [200, "OK", \@res];
+}
+
 1;
 # ABSTRACT:
 
 =head1 SYNOPSIS
 
-Before you use C<cpandb-meta>, you must already install CPAN::SQLite and create
-its index, to do so:
-
- % cpanm CPAN::SQLite
- % cpandb --CPAN /path/to/cpan --db_dir /path/to/cpan --db_name cpandb.sql --setup
-
-Afterwards, add information from CPAN Meta by doing this:
-
- % cpandb-meta --cpan /path/to/cpan index
-
-Everytime you update your CPAN mirror, update the CPAN::SQLite index and also
-the CPAN Meta information:
-
- % cpandb --CPAN /path/to/cpan --db_dir /path/to/cpan --db_name cpandb.sql --update
- % cpandb-meta --cpan /path/to/cpan index
-
-To query CPAN Meta information in database:
-
- # find out the dependencies of a module (i.e. what modules are required by
- # Text::ANSITable)
- % cpandb-meta --cpan /path/to/cpan deps Text::ANSITable
-
- # find out the reverse dependencies of a module (i.e. which modules
- # (distributions) depends on Text::ANSITable)
- % cpandb-meta --cpan /path/to/cpan revdeps Text::ANSITable
-
-For more options:
-
- % cpandb-meta --help
- % cpandb-meta index --help
- % cpandb-meta deps --help
- % cpandb-meta revdeps --help
+See L<cpandb-meta> script.
 
 
 =head1 DESCRIPTION
