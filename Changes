@@ -1,6 +1,6 @@
 Revision history for CPAN-SQLite-CPANMeta
 
-0.02    2015-01-08 (PERLANCAR) (unreleased)
+0.02    2015-01-08 (PERLANCAR)
 
         - Rename module/dist from CPAN-SQLite-{Meta,CPANMeta} due to PAUSE
           conflict with existing helper module CPAN::SQLite::META.
