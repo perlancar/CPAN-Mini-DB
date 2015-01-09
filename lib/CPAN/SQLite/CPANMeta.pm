@@ -420,6 +420,38 @@ ORDER BY module");
     [200, "OK", \@res];
 }
 
+sub _get_revdeps {
+    my ($mod, $dbh) = @_;
+
+    $log->tracef("Finding reverse dependencies for module %s ...", $mod);
+
+    # first, check that module is listed
+    my ($mod_id) = $dbh->selectrow_array("SELECT mod_id FROM mods WHERE mod_name=?", {}, $mod)
+        or return [404, "No such module: $mod"];
+
+    # get all dists that depend on that module
+    my $sth = $dbh->prepare("SELECT
+  (SELECT dist_name FROM dists WHERE dp.dist_id=dists.dist_id) AS dist,
+  (SELECT dist_vers FROM dists WHERE dp.dist_id=dists.dist_id) AS dist_version,
+  -- phase,
+  -- rel,
+  version req_version
+FROM deps dp
+WHERE mod_id=?
+ORDER BY dist");
+    $sth->execute($mod_id);
+    my @res;
+    while (my $row = $sth->fetchrow_hashref) {
+        #next unless $phase eq 'ALL' || $row->{phase} eq $phase;
+        #next unless $rel   eq 'ALL' || $row->{rel}   eq $rel;
+        #delete $row->{phase} unless $phase eq 'ALL';
+        #delete $row->{rel}   unless $rel   eq 'ALL';
+        push @res, $row;
+    }
+
+    [200, "OK", \@res];
+}
+
 my $_complete_mod = sub {
     my %args = @_;
 
@@ -462,54 +494,61 @@ my $_complete_mod = sub {
     \@res;
 };
 
+my %mod_args = (
+    module => {
+        schema => 'str*',
+        req => 1,
+        pos => 0,
+        completion => $_complete_mod,
+    },
+);
+
+my %deps_args = (
+    phase => {
+        schema => ['str*' => {
+            in => [qw/develop configure build runtime test ALL/],
+        }],
+        default => 'runtime',
+    },
+    rel => {
+        schema => ['str*' => {
+            in => [qw/requires recommends suggests conflicts ALL/],
+        }],
+        default => 'requires',
+    },
+    level => {
+        summary => 'Recurse for a number of levels (-1 means unlimited)',
+        schema  => 'int*',
+        default => 1,
+        cmdline_aliases => {
+            l => {},
+            R => {
+                summary => 'Recurse (alias for `--level -1`)',
+                is_flag => 1,
+                code => sub { $_[0]{level} = -1 },
+            },
+        },
+    },
+    include_core => {
+        summary => 'Include Perl core modules',
+        'summary.alt.bool.not' => 'Exclude Perl core modules',
+        schema  => 'bool',
+        default => 0,
+    },
+    perl_version => {
+        summary => 'Set base Perl version for determining core modules',
+        schema  => 'str*',
+        default => "$^V",
+        cmdline_aliases => {V=>{}},
+    },
+);
+
 $SPEC{'deps_cpan_meta'} = {
     v => 1.1,
     summary => 'Query dependency from CPAN::SQLite database',
     args => {
         %common_args,
-        module => {
-            schema => 'str*',
-            req => 1,
-            pos => 0,
-            completion => $_complete_mod,
-        },
-        phase => {
-            schema => ['str*' => {
-                in => [qw/develop configure build runtime test ALL/],
-            }],
-            default => 'runtime',
-        },
-        rel => {
-            schema => ['str*' => {
-                in => [qw/requires recommends suggests conflicts ALL/],
-            }],
-            default => 'requires',
-        },
-        level => {
-            summary => 'Recurse for a number of levels (-1 means unlimited)',
-            schema  => 'int*',
-            default => 1,
-            cmdline_aliases => {
-                l => {},
-                R => {
-                    summary => 'Recurse (alias for `--level -1`)',
-                    is_flag => 1,
-                    code => sub { $_[0]{level} = -1 },
-                },
-            },
-        },
-        include_core => {
-            summary => 'Include Perl core modules',
-            'summary.alt.bool.not' => 'Exclude Perl core modules',
-            schema  => 'bool',
-            default => 0,
-        },
-        perl_version => {
-            summary => 'Set base Perl version for determining core modules',
-            schema  => 'str*',
-            default => "$^V",
-            cmdline_aliases => {V=>{}},
-        },
+        %deps_args,
     },
 };
 sub deps_cpan_meta {
@@ -541,12 +580,7 @@ $SPEC{'revdeps_cpan_meta'} = {
     summary => 'Query reverse dependencies from CPAN::SQLite database',
     args => {
         %common_args,
-        module => {
-            schema => 'str*',
-            req => 1,
-            pos => 0,
-            completion => $_complete_mod,
-        },
+        %mod_args,
     },
 };
 sub revdeps_cpan_meta {
@@ -557,7 +591,7 @@ sub revdeps_cpan_meta {
 
     my $dbh     = _connect_db(%args);
 
-    [501, "Not yet implemented"];
+    _get_revdeps($mod, $dbh);
 }
 
 1;
