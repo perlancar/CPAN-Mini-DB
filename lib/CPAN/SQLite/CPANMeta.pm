@@ -522,7 +522,7 @@ sub revdeps_cpan_meta {
 
 =head1 SYNOPSIS
 
-See L<cpandb-meta> script.
+See L<cpandb-cpanmeta> script.
 
 
 =head1 DESCRIPTION
@@ -545,7 +545,7 @@ extracted/recorded are: dependencies (tables: C<files>, C<deps>).
 
 =head1 SEE ALSO
 
-Front-end for this module: L<cpandb-meta>.
+Front-end for this module: L<cpandb-cpanmeta>.
 
 L<CPAN::SQLite> and its front-end L<cpandb>.
 
