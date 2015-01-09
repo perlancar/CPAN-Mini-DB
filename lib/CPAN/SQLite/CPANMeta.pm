@@ -30,6 +30,21 @@ $SPEC{':package'} = {
     summary => 'Index and query CPAN Meta information in CPAN::SQLite database',
 };
 
+sub _connect_db {
+    require DBI;
+
+    my %args = @_;
+
+    my $cpan    = $args{cpan};
+    my $db_dir  = $args{db_dir} // $cpan;
+    my $db_name = $args{db_name} // 'cpandb.sql';
+
+    my $db_path = "$db_dir/$db_name";
+    $log->tracef("Connecting to SQLite database at %s ...", $db_path);
+    DBI->connect("dbi:SQLite:dbname=$db_path", undef, undef,
+                 {RaiseError=>1});
+}
+
 sub _parse_json {
     my $content = shift;
 
@@ -107,14 +122,10 @@ sub index_cpan_meta {
 
     my %args = @_;
 
-    my $cpan    = $args{cpan} or return [412, "Please specify 'cpan'"];
-    my $db_dir  = $args{db_dir} // $cpan;
-    my $db_name = $args{db_name} // 'cpandb.sql';
+    my $cpan = $args{cpan} or return [400, "Please specify 'cpan'"];
 
-    my $db_path = "$db_dir/$db_name";
-    $log->tracef("Connecting to SQLite database at %s ...", $db_path);
-    my $dbh = DBI->connect("dbi:SQLite:dbname=$db_path", undef, undef,
-                           {RaiseError=>1});
+    my $dbh  = _connect_db(%args);
+
     $dbh->do("CREATE INDEX IF NOT EXISTS ix_dists_dist_file ON dists(dist_file)");
     $dbh->do("CREATE TABLE IF NOT EXISTS files (
   file_id INTEGER NOT NULL PRIMARY KEY,
@@ -407,6 +418,48 @@ ORDER BY module");
     [200, "OK", \@res];
 }
 
+my $_complete_mod = sub {
+    my %args = @_;
+
+    my $word = $args{word} // '';
+
+    my $cmdline = $args{cmdline} or return undef;
+    my $r = $args{r};
+
+    # force read config file, because by default it is turned off when in
+    # completion
+    $r->{read_config} = 1;
+    my $res = $cmdline->parse_argv($r);
+
+    my $dbh;
+    eval { $dbh = _connect_db(%{$res->[2]}) };
+
+    # if we can't connect (probably because --cpan is not set yet), bail
+    if ($@) {
+        $log->tracef("[comp] can't connect to db, bailing: %s", $@);
+        return undef;
+    }
+
+    my $sth = $dbh->prepare(
+        "SELECT mod_name FROM mods WHERE mod_name LIKE ? ORDER BY mod_name");
+    $sth->execute($word . '%');
+
+    # XXX follow Complete::OPT_CI
+
+    my @res;
+    while (my ($mod) = $sth->fetchrow_array) {
+        # only complete one level deeper at a time
+        if ($mod =~ /:\z/) {
+            next unless $mod =~ /\A\Q$word\E:*\w+\z/i;
+        } else {
+            next unless $mod =~ /\A\Q$word\E\w*(::\w+)?\z/i;
+        }
+        push @res, $mod;
+    }
+
+    \@res;
+};
+
 $SPEC{'deps_cpan_meta'} = {
     v => 1.1,
     summary => 'Query dependency from CPAN::SQLite database',
@@ -416,6 +469,7 @@ $SPEC{'deps_cpan_meta'} = {
             schema => 'str*',
             req => 1,
             pos => 0,
+            completion => $_complete_mod,
         },
         phase => {
             schema => ['str*' => {
@@ -457,13 +511,9 @@ $SPEC{'deps_cpan_meta'} = {
     },
 };
 sub deps_cpan_meta {
-    require DBI;
-
     my %args = @_;
 
-    my $cpan    = $args{cpan} or return [412, "Please specify 'cpan'"];
-    my $db_dir  = $args{db_dir} // $cpan;
-    my $db_name = $args{db_name} // 'cpandb.sql';
+    my $cpan    = $args{cpan} or return [400, "Please specify 'cpan'"];
     my $mod     = $args{module};
     my $phase   = $args{phase} // 'runtime';
     my $rel     = $args{rel} // 'requires';
@@ -471,10 +521,7 @@ sub deps_cpan_meta {
     my $level   = $args{level} // 1;
     my $include_core = $args{include_core} // 0;
 
-    my $db_path = "$db_dir/$db_name";
-    $log->tracef("Connecting to SQLite database at %s ...", $db_path);
-    my $dbh = DBI->connect("dbi:SQLite:dbname=$db_path", undef, undef,
-                           {RaiseError=>1});
+    my $dbh     = _connect_db(%args);
 
     my $res = _get_prereqs($mod, $dbh, {}, 1, $level, $phase, $rel, $include_core, $plver);
 
@@ -496,23 +543,17 @@ $SPEC{'revdeps_cpan_meta'} = {
             schema => 'str*',
             req => 1,
             pos => 0,
+            completion => $_complete_mod,
         },
     },
 };
 sub revdeps_cpan_meta {
-    require DBI;
-
     my %args = @_;
 
-    my $cpan    = $args{cpan} or return [412, "Please specify 'cpan'"];
-    my $db_dir  = $args{db_dir} // $cpan;
-    my $db_name = $args{db_name} // 'cpandb.sql';
+    my $cpan    = $args{cpan} or return [400, "Please specify 'cpan'"];
     my $mod     = $args{module};
 
-    my $db_path = "$db_dir/$db_name";
-    $log->tracef("Connecting to SQLite database at %s ...", $db_path);
-    my $dbh = DBI->connect("dbi:SQLite:dbname=$db_path", undef, undef,
-                           {RaiseError=>1});
+    my $dbh     = _connect_db(%args);
 
     [501, "Not yet implemented"];
 }
