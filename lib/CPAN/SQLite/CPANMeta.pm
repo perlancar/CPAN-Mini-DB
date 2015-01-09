@@ -351,8 +351,10 @@ ORDER BY dist_file
     } # for file
 
     $dbh->commit if $after_begin;
-    undef $sth_insdist;
     undef $sth_insfile;
+    undef $sth_seldist;
+    undef $sth_insdist;
+    undef $sth_selmod;
     undef $sth_insdep;
     undef $sth;
 
