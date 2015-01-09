@@ -1,5 +1,12 @@
 Revision history for CPAN-SQLite-CPANMeta
 
+0.04    2015-01-09 (PERLANCAR)
+
+        - Implement 'revdeps' subcommand.
+
+        - Add completion for 'module' argument.
+
+
 0.03    2015-01-09 (PERLANCAR)
 
 	- Support recursive/multiple levels (option --level, -l and -R).
