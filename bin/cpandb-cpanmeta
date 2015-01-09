@@ -33,13 +33,19 @@ create its index, to do so:
  % cpanm CPAN::SQLite
  % cpandb --CPAN /path/to/cpan --db_dir /path/to/cpan --db_name cpandb.sql --setup
 
-Afterwards, add information from CPAN Meta by doing this:
+Now you're ready to use C<cpandb-cpanmeta>. First, put this in
+C<~/cpandb-cpanmeta.conf> or C</etc/cpandb-cpanmeta.conf> to avoid specifying
+repeatedly on command-line. Replace with actual path of your local CPAN mirror:
 
- % cpandb-cpanmeta index --cpan /path/to/cpan
+ cpan=/path/to/cpan
+
+Afterwards, index information from CPAN Meta by doing this:
+
+ % cpandb-cpanmeta index
 
 If you want to see debugging information:
 
- % cpandb-cpanmeta --trace index --cpan /path/to/cpan
+ % cpandb-cpanmeta index --trace
 
 Everytime you update your CPAN mirror, update the CPAN::SQLite index and also
 the CPAN Meta information:
