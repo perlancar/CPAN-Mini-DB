@@ -10,22 +10,17 @@ use warnings;
 #use CPAN::SQLite::Meta;
 use Perinci::CmdLine::Any -prefer_lite=>1;
 
-my $prefix = '/CPAN/SQLite/CPANMeta/';
-
 Perinci::CmdLine::Any->new(
-    url => $prefix,
-    subcommands => {
-        index   => {url=>$prefix . 'index_cpan_meta'},
-        deps    => {url=>$prefix . 'deps_cpan_meta'},
-        revdeps => {url=>$prefix . 'revdeps_cpan_meta'},
-    },
+    url => "/CPAN/SQLite/CPANMeta/index_cpan_meta",
     log => 1,
 )->run;
 
-# ABSTRACT: Index and query CPAN Meta information in CPAN::SQLite database
+# ABSTRACT: Index CPAN Meta information in CPAN::SQLite database
 # PODNAME:
 
 =head1 SYNOPSIS
+
+=head2 Indexing data
 
 Before you use C<cpandb-cpanmeta>, you must already install CPAN::SQLite and
 create its index, to do so:
@@ -33,42 +28,29 @@ create its index, to do so:
  % cpanm CPAN::SQLite
  % cpandb --CPAN /path/to/cpan --db_dir /path/to/cpan --db_name cpandb.sql --setup
 
-Now you're ready to use C<cpandb-cpanmeta>. First, put this in
-C<~/cpandb-cpanmeta.conf> or C</etc/cpandb-cpanmeta.conf> to avoid specifying
-repeatedly on command-line. Replace with actual path of your local CPAN mirror:
+Then put this in C<~/cpandb-cpanmeta.conf> or C</etc/cpandb-cpanmeta.conf> to
+avoid specifying repeatedly on command-line. Replace with actual path of your
+local CPAN mirror:
 
  cpan=/path/to/cpan
 
 Afterwards, index information from CPAN Meta by doing this:
 
- % cpandb-cpanmeta index
+ % cpandb-cpanmeta
 
 If you want to see debugging information:
 
- % cpandb-cpanmeta index --trace
+ % cpandb-cpanmeta --trace
 
 Everytime you update your CPAN mirror, update the CPAN::SQLite index and also
 the CPAN Meta information:
 
  % cpandb --CPAN /path/to/cpan --db_dir /path/to/cpan --db_name cpandb.sql --update
- % cpandb-cpanmeta index --cpan /path/to/cpan
+ % cpandb-cpanmeta
 
-To query CPAN Meta information in database:
+=head2 Querying
 
- # find out the dependencies of a module (i.e. what modules are required by
- # Text::ANSITable)
- % cpandb-cpanmeta deps --cpan /path/to/cpan Text::ANSITable
-
- # find out the reverse dependencies of a module (i.e. which modules
- # (distributions) depends on Text::ANSITable)
- % cpandb-cpanmeta revdeps --cpan /path/to/cpan Text::ANSITable
-
-For more options:
-
- % cpandb-cpanmeta --help
- % cpandb-cpanmeta index --help
- % cpandb-cpanmeta deps --help
- % cpandb-cpanmeta revdeps --help
+Install L<App::CPANSQLiteUtils> and see the provided CLI scripts.
 
 
 =head1 DESCRIPTION
