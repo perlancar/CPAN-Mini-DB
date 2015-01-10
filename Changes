@@ -1,5 +1,13 @@
 Revision history for CPAN-SQLite-CPANMeta
 
+0.05    2015-01-10 (PERLANCAR)
+
+        [REMOVED FEATURES]
+
+        - Move querying function to separate module/dist: App::CPANSQLiteUtils;
+          make cpandb-cpanmeta CLI not have any subcommands.
+
+
 0.04    2015-01-09 (PERLANCAR)
 
         - Implement 'revdeps' subcommand.
