@@ -25,7 +25,7 @@ our %SPEC;
 
 $SPEC{':package'} = {
     v => 1.1,
-    summary => 'Index and query CPAN Meta information in CPAN::SQLite database',
+    summary => 'Index CPAN Meta information in CPAN::SQLite database',
 };
 
 sub _connect_db {
